@@ -1,0 +1,114 @@
+blueprint:
+  name: Philips Hue 929002398602 + Zigbee2MQTT + Light
+  description: |
+    # Requirements:
+    - Philips Hue Dimmer Switch 929002398602
+    - Zigbee2MQTT
+    - MQTT
+
+  domain: automation
+  input:
+    Remote_MQTT_Topic:
+      name: Remote MQTT Topic
+      description: Philips Hue Dimmer Switch (e.g., zigbee2mqtt/remote_1/action)
+      default: "zigbee2mqtt/<my_remote_device>/action"
+    Target_MQTT_Topic:
+      name: Target MQTT Topic
+      description: Target light (e.g., zigbee2mqtt/light_1/set)
+      default: "zigbee2mqtt/<your_target_device>/set"
+
+    move_rate:
+      name: Brightness Move Rate [steps/s]
+      description: The rate at which brightness should change on up/down press.
+      default: 50
+      selector: 
+        number:
+          min: 1
+          max: 255
+          step: 1
+          mode: slider
+    color_temp:
+      name: Color Temperature (optional)
+      description: The color temperature to set when turning on the light (in mireds). Leave empty to not set color temperature.
+      default: 370
+      selector:
+        text:
+    color:
+      name: Color (optional)
+      description: The color to set when turning on the light (RGB, e.g. [255,0,0] for red). Leave empty to not set color.
+      default: ''
+      selector:
+        text:
+
+variables:
+  move_rate: !input move_rate
+  color_temp: !input color_temp
+  color: !input color
+  remote_topic: !input Remote_MQTT_Topic
+  target_topic: !input Target_MQTT_Topic
+
+mode: restart
+
+trigger:
+  - platform: mqtt
+    topic: !input Remote_MQTT_Topic # Needs to be set static
+    id: mqtt_action
+
+condition: []
+
+action:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.payload == 'on_press' }}"
+        sequence:
+          - service: mqtt.publish
+            data:
+              topic: "{{ target_topic }}"
+              payload: >
+                {"state":"ON"{% if color_temp != '' %}, "color_temp":{{ color_temp }}{% endif %}{% if color|length > 0 %}, "color": {"rgb": {{ color }} }{% endif %}}
+              qos: 0
+              retain: false
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.payload == 'off_press' }}"
+        sequence:
+          - service: mqtt.publish
+            data:
+              topic: "{{ target_topic }}"
+              payload: '{"state":"OFF"}'
+              qos: 0
+              retain: false
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.payload == 'up_press' }}"
+        sequence:
+          - service: mqtt.publish
+            data:
+              topic: "{{ target_topic }}"
+              payload: '{"brightness_move": {{ move_rate }}}'
+              qos: 0
+              retain: false
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.payload == 'down_press' }}"
+        sequence:
+          - service: mqtt.publish
+            data:
+              topic: "{{ target_topic }}"
+              payload: '{"brightness_move": {{ -move_rate }}}'
+              qos: 0
+              retain: false
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ trigger.payload in ['up_press_release', 'down_press_release',
+              'up_hold_release', 'down_hold_release'] }}
+        sequence:
+          - service: mqtt.publish
+            data:
+              topic: "{{ target_topic }}"
+              payload: '{"brightness_move": 0}'
+              qos: 0
+              retain: false
+    default: []
